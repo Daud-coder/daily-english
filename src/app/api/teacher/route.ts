@@ -55,17 +55,38 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
     
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.7,
-      }
-    });
+    // Try primary model with automatic failover to alternative flash models on 503/429
+    const candidateModels = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+    let responseText = "";
+    let lastError = null;
 
-    const text = response.text || "";
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: contents,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            temperature: 0.7,
+          }
+        });
+        responseText = response.text || "";
+        if (responseText) {
+          console.log(`[Teacher API] Success with model: ${model}`);
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Teacher API] Model ${model} failed, trying next:`, err?.message || err);
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error("All Gemini models returned empty response");
+    }
+
+    const text = responseText;
     console.log("[Teacher API] Gemini response raw text:", text);
     
     try {
@@ -94,7 +115,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[Teacher API] Gemini API error:", error?.message || error);
     // Return friendly resilient fallback response with the student's name
-    const fallback = getSmartMockResponse("error_fallback", "Daud");
+    const fallback = getSmartMockResponse(userMessage, studentName);
     return NextResponse.json(fallback);
   }
 }
