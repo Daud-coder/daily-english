@@ -39,24 +39,34 @@ export async function POST(req: NextRequest) {
 
     const systemInstruction = getTeacherSystemPrompt(context);
 
-    // Format chat history for Gemini
+    // Format chat history for Gemini (up to 10 recent messages)
     const contents: any[] = [];
     
-    // Add recent history (last 6 exchanges)
-    const recent = chatHistory.slice(-6);
+    // Filter history to exclude exact duplicate of current message if client passed it
+    const recent = chatHistory.slice(-10).filter(
+      (m, idx, arr) => !(idx === arr.length - 1 && m.sender === "user" && m.english.trim() === userMessage.trim())
+    );
+
     for (const msg of recent) {
-      contents.push({
-        role: msg.sender === "user" ? "user" : "model",
-        parts: [{ text: msg.sender === "user" ? msg.english : JSON.stringify({ english: msg.english, russian: msg.russian }) }]
-      });
+      if (msg.sender === "user") {
+        contents.push({
+          role: "user",
+          parts: [{ text: msg.english }]
+        });
+      } else {
+        contents.push({
+          role: "model",
+          parts: [{ text: JSON.stringify({ english: msg.english, russian: msg.russian }) }]
+        });
+      }
     }
 
-    // Add current user prompt
+    // Add current user prompt with explicit reminder of dialogue history
     contents.push({
       role: "user",
       parts: [
         {
-          text: `Сообщение ученика: "${userMessage.trim()}". Пожалуйста, ответь строго в формате JSON по инструкции.`
+          text: `Сообщение ученика: "${userMessage.trim()}". ВАЖНО: Учитывай всю предыдущую историю нашего диалога. СТРОГО ЗАПРЕЩЕНО переспрашивать то, что ученик уже сообщил (например, если он уже сказал, откуда он, или про семью, или имя). Задавай новый логичный вопрос. Если есть ошибка — обязательно исправь её, объясни по-русски и похвали ТОЛЬКО за попытку в поле praise. Ответь строго в формате JSON.`
         }
       ]
     });
@@ -107,12 +117,24 @@ export async function POST(req: NextRequest) {
       const cleanJson = text.replace(/```json/gi, "").replace(/```/g, "").trim();
       const parsed = JSON.parse(cleanJson);
       
+      let finalPraise = parsed.praise;
+      if (parsed.correction) {
+        // When there is an error, praise the attempt, NOT a flawless performance
+        if (!finalPraise || /отлично справляешься|всё правильно|идеально|на пять/i.test(finalPraise)) {
+          finalPraise = `Хорошая попытка, ${studentName}! Главное — говорить и не бояться ошибок.`;
+        }
+      } else {
+        if (!finalPraise) {
+          finalPraise = `Отлично сказано, ${studentName}!`;
+        }
+      }
+
       const result = {
         english: parsed.english || `Hello ${studentName}! How are you today?`,
         russian: parsed.russian || `Привет, ${studentName}! Как твои дела сегодня?`,
         correction: parsed.correction || null,
         repeatPrompt: parsed.repeatPrompt || null,
-        praise: parsed.praise || `Отлично, ${studentName}, продолжай говорить!`
+        praise: finalPraise
       };
       return NextResponse.json(result);
     } catch (parseErr) {
@@ -122,7 +144,7 @@ export async function POST(req: NextRequest) {
         russian: `Отличная работа, ${studentName}!`,
         correction: null,
         repeatPrompt: null,
-        praise: "Молодец, что пробуешь говорить!"
+        praise: `Хорошая попытка, ${studentName}!`
       });
     }
 

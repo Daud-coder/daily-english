@@ -34,23 +34,37 @@ export function TeacherChat() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [isComposing, setIsComposing] = useState(false);
 
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognizerRef = useRef<VoiceRecognizer | null>(null);
 
-  // Load student name and chat history
+  const scrollToBottom = (smooth: boolean = true) => {
+    requestAnimationFrame(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTo({
+          top: chatContainerRef.current.scrollHeight + 500,
+          behavior: smooth ? "smooth" : "auto"
+        });
+      }
+      messagesEndRef.current?.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end"
+      });
+    });
+  };
+
+  // Load student name and chat history with legacy migration
   useEffect(() => {
     let mounted = true;
 
-    getStorage().getStudentName().then((name) => {
+    getStorage().getStudentName().then((storedName) => {
       if (!mounted) return;
-      setStudentName(name || "Daud");
-    });
+      const sName = storedName || "Daud";
+      setStudentName(sName);
 
-    getStorage().getMessages().then((loaded) => {
-      if (!mounted) return;
-      if (loaded.length === 0) {
-        getStorage().getStudentName().then((name) => {
-          const sName = name || "Daud";
+      getStorage().getMessages().then((loaded) => {
+        if (!mounted) return;
+        if (loaded.length === 0) {
           const starter: ChatMessageItem = {
             id: "msg-starter",
             sender: "teacher",
@@ -62,10 +76,28 @@ export function TeacherChat() {
           getStorage().saveMessage(starter);
           setMessages([starter]);
           voiceSpeaker.speak(starter.english, { slow: false });
-        });
-      } else {
-        setMessages(loaded);
-      }
+        } else {
+          // Migrate any existing starter asking "What is your name?"
+          const migrated = loaded.map((m) => {
+            if (
+              m.sender === "teacher" &&
+              (m.english.toLowerCase().includes("what is your name") || m.id === "msg-starter")
+            ) {
+              return {
+                ...m,
+                english: `Hello, ${sName}! How are you today?`,
+                russian: `Привет, ${sName}! Как твои дела сегодня?`,
+                praise: "Добро пожаловать! Я твой личный ИИ-учитель. Напиши или скажи мне что-нибудь на английском или русском!"
+              };
+            }
+            return m;
+          });
+          setMessages(migrated);
+          if (migrated[0] && migrated[0].id === "msg-starter") {
+            getStorage().saveMessage(migrated[0]).catch(console.warn);
+          }
+        }
+      });
     });
 
     return () => {
@@ -73,9 +105,11 @@ export function TeacherChat() {
     };
   }, []);
 
-  // Scroll to bottom on new messages
+  // Auto-scroll on new messages or typing indicator
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    scrollToBottom(true);
+    const timer = setTimeout(() => scrollToBottom(true), 100);
+    return () => clearTimeout(timer);
   }, [messages, isLoading]);
 
   const handleSendMessage = async (textToSend: string, isAudio: boolean = false) => {
@@ -115,7 +149,7 @@ export function TeacherChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userMessage: userText,
-          chatHistory: updatedHistory.slice(-6).map((m) => ({
+          chatHistory: messages.slice(-10).map((m) => ({
             sender: m.sender,
             english: m.english,
             russian: m.russian
@@ -284,7 +318,7 @@ export function TeacherChat() {
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0 scroll-smooth">
         {messages.map((msg) => {
           const isTeacher = msg.sender === "teacher";
           const isTranslationHidden = collapsedTranslations[msg.id];
@@ -303,8 +337,16 @@ export function TeacherChat() {
               >
                 {/* Praise badge if present */}
                 {isTeacher && msg.praise && (
-                  <div className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 text-[11px] font-semibold px-2.5 py-0.5 rounded-full mb-2 border border-amber-200/60">
-                    <Sparkles className="w-3 h-3 text-amber-600" />
+                  <div
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full mb-2 border ${
+                      msg.correction
+                        ? "bg-amber-50 text-amber-900 border-amber-200/80"
+                        : "bg-emerald-50 text-emerald-800 border-emerald-200/80"
+                    }`}
+                  >
+                    <Sparkles
+                      className={`w-3 h-3 ${msg.correction ? "text-amber-600" : "text-emerald-600"}`}
+                    />
                     <span>{msg.praise}</span>
                   </div>
                 )}
