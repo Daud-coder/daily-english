@@ -40,13 +40,36 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
-                    console.log('SW registration failed: ', err);
-                  });
-                });
-              }
+              (function() {
+                var isProd = ${process.env.NODE_ENV === "production" ? "true" : "false"};
+                if (isProd) {
+                  if ('serviceWorker' in navigator) {
+                    window.addEventListener('load', function() {
+                      navigator.serviceWorker.register('/sw.js').catch(function(err) {
+                        console.warn('SW registration failed: ', err);
+                      });
+                    });
+                  }
+                } else {
+                  // In development mode: automatically unregister any active service worker and clear caches
+                  if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                      for (var i = 0; i < registrations.length; i++) {
+                        registrations[i].unregister().then(function(unregistered) {
+                          if (unregistered) console.log('[Dev] Unregistered stale service worker');
+                        });
+                      }
+                    });
+                  }
+                  if ('caches' in window) {
+                    caches.keys().then(function(keys) {
+                      for (var j = 0; j < keys.length; j++) {
+                        caches.delete(keys[j]);
+                      }
+                    });
+                  }
+                }
+              })();
             `,
           }}
         />
