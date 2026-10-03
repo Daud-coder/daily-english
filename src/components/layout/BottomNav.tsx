@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { Calendar, Bot, BookOpen, TrendingUp } from "lucide-react";
+import { Calendar, Bot, Clapperboard, Gamepad2, TrendingUp } from "lucide-react";
 
-export type NavTab = "today" | "teacher" | "words" | "progress";
+export type NavTab = "today" | "teacher" | "roleplay" | "games" | "progress";
 
 interface BottomNavProps {
   currentTab: NavTab;
@@ -13,14 +13,15 @@ interface BottomNavProps {
 export function BottomNav({ currentTab, onTabChange }: BottomNavProps) {
   const tabs = [
     { id: "today" as NavTab, label: "Сегодня", icon: Calendar },
-    { id: "teacher" as NavTab, label: "Учитель", icon: Bot, isCenter: true },
-    { id: "words" as NavTab, label: "Слова", icon: BookOpen },
+    { id: "teacher" as NavTab, label: "Разговор", icon: Bot, isCenter: true },
+    { id: "roleplay" as NavTab, label: "Сценки", icon: Clapperboard },
+    { id: "games" as NavTab, label: "Игры", icon: Gamepad2 },
     { id: "progress" as NavTab, label: "Прогресс", icon: TrendingUp },
   ];
 
   return (
     <nav className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 pb-[env(safe-area-inset-bottom,0px)] shadow-lg">
-      <div className="max-w-2xl mx-auto grid grid-cols-4 items-center px-1 py-1.5">
+      <div className="max-w-2xl mx-auto grid grid-cols-5 items-center px-1 py-1.5">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = currentTab === tab.id;
@@ -38,10 +39,10 @@ export function BottomNav({ currentTab, onTabChange }: BottomNavProps) {
                     : "text-slate-400 group-hover:text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <span
-                className={`text-[11px] font-bold transition-colors truncate max-w-full ${
+                className={`text-[10px] sm:text-[11px] font-bold transition-colors truncate max-w-full ${
                   isActive ? "text-brand-600" : "text-slate-500 group-hover:text-slate-700"
                 }`}
               >

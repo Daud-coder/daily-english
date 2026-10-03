@@ -5,7 +5,8 @@ import { Header } from "@/components/layout/Header";
 import { BottomNav, NavTab } from "@/components/layout/BottomNav";
 import { TeacherChat } from "@/components/teacher/TeacherChat";
 import { TodayLesson } from "@/components/today/TodayLesson";
-import { Vocabulary } from "@/components/words/Vocabulary";
+import { RoleplayScreen } from "@/components/roleplay/RoleplayScreen";
+import { MinigamesScreen } from "@/components/games/MinigamesScreen";
 import { ProgressScreen } from "@/components/progress/ProgressScreen";
 
 export default function Home() {
@@ -15,7 +16,7 @@ export default function Home() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab") as NavTab;
-      if (tab && ["today", "teacher", "words", "progress"].includes(tab)) {
+      if (tab && ["today", "teacher", "roleplay", "games", "progress"].includes(tab)) {
         setCurrentTab(tab);
       }
     }
@@ -32,9 +33,14 @@ export default function Home() {
             <TodayLesson />
           </div>
         )}
-        {currentTab === "words" && (
+        {currentTab === "roleplay" && (
           <div className="flex-1 overflow-y-auto">
-            <Vocabulary />
+            <RoleplayScreen />
+          </div>
+        )}
+        {currentTab === "games" && (
+          <div className="flex-1 overflow-y-auto">
+            <MinigamesScreen />
           </div>
         )}
         {currentTab === "progress" && (

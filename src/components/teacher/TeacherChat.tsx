@@ -12,20 +12,26 @@ import {
   ChevronDown,
   ChevronUp,
   VolumeX,
-  Loader2
+  Loader2,
+  PhoneCall
 } from "lucide-react";
 import { InteractiveText } from "./InteractiveText";
 import { WordModal } from "./WordModal";
 import { ShadowingModal } from "./ShadowingModal";
+import { AlexAvatar, AvatarState } from "../character/AlexAvatar";
+import { VoiceCallModal } from "../call/VoiceCallModal";
 import { voiceSpeaker } from "@/lib/speech/speechSynthesis";
 import { VoiceRecognizer } from "@/lib/speech/speechRecognition";
 import { getStorage, ChatMessageItem } from "@/lib/storage/storageAdapter";
+import { awardXP, unlockBadge } from "@/lib/gamification/xpSystem";
 
 export function TeacherChat() {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [inputText, setInputText] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCallOpen, setIsCallOpen] = useState(false);
+  const [avatarState, setAvatarState] = useState<AvatarState>("idle");
   const [studentName, setStudentName] = useState("Daud");
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [selectedSentence, setSelectedSentence] = useState<string | undefined>(undefined);
@@ -156,7 +162,12 @@ export function TeacherChat() {
           })),
           context: {
             studentName: studentName,
-            studentLevel: "A0–A1"
+            studentLevel: "A0–A1",
+            studentFacts: {
+              city: "Kyiv",
+              occupation: "мясной бизнес / meat business",
+              family: "двое детей (two children)"
+            }
           }
         })
       });
@@ -183,6 +194,7 @@ export function TeacherChat() {
 
         setMessages((prev) => [...prev, errorMsg]);
         getStorage().saveMessage(errorMsg).catch(console.warn);
+        setTimeout(() => scrollToBottom(true), 100);
         return;
       }
 
@@ -201,9 +213,17 @@ export function TeacherChat() {
 
       setMessages((prev) => [...prev, teacherMsg]);
       getStorage().saveMessage(teacherMsg).catch(console.warn);
+      setTimeout(() => scrollToBottom(true), 100);
 
       if (data.correction) {
         getStorage().addMistake(data.correction).catch(console.warn);
+      }
+
+      // Award XP for English reply (+10 XP)
+      awardXP(10);
+      unlockBadge("b1"); // Первые слова
+      if (!data.correction) {
+        unlockBadge("b5"); // Без ошибок
       }
 
       // Automatically speak teacher's response
@@ -290,16 +310,33 @@ export function TeacherChat() {
 
   return (
     <div className="flex flex-col flex-1 h-full min-h-0 max-w-2xl w-full mx-auto bg-slate-50">
-      {/* Top Bar inside Chat */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-slate-200/80 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-xs font-semibold text-slate-700">ИИ-Учитель готов</span>
-          <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
-            Ученик: {studentName}
-          </span>
+      {/* Top Bar inside Chat with Alex Avatar & Call Button */}
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-white border-b border-slate-200/80 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <AlexAvatar state={isLoading ? "thinking" : avatarState} size="sm" />
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs sm:text-sm font-bold text-slate-800">Alex</span>
+              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-full font-semibold">
+                Онлайн
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 block -mt-0.5">Ученик: {studentName}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+
+        <div className="flex items-center gap-1.5">
+          {/* Call Alex Fullscreen Button */}
+          <button
+            onClick={() => setIsCallOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95"
+            title="Позвонить учителю Алексу голосом"
+          >
+            <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
+            <span className="hidden sm:inline">Звонок</span>
+            <span>Голос</span>
+          </button>
+
           <button
             onClick={() => voiceSpeaker.stop()}
             title="Остановить звук"
@@ -555,6 +592,14 @@ export function TeacherChat() {
           onClose={() => setShadowingPhrase(null)}
         />
       )}
+
+      {/* Fullscreen Voice Call Modal with Alex */}
+      <VoiceCallModal
+        isOpen={isCallOpen}
+        onClose={() => setIsCallOpen(false)}
+        studentName={studentName}
+        onNewMessage={(m) => setMessages((prev) => [...prev, m])}
+      />
     </div>
   );
 }

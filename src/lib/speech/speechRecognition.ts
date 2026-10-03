@@ -126,4 +126,8 @@ export class VoiceRecognizer {
   public get active(): boolean {
     return this.isListening;
   }
+
+  public isSupported(): boolean {
+    return typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  }
 }

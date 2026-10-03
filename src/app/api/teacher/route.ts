@@ -66,7 +66,18 @@ export async function POST(req: NextRequest) {
       role: "user",
       parts: [
         {
-          text: `Сообщение ученика: "${userMessage.trim()}". ВАЖНО: Учитывай всю предыдущую историю нашего диалога. СТРОГО ЗАПРЕЩЕНО переспрашивать то, что ученик уже сообщил (например, если он уже сказал, откуда он, или про семью, или имя). Задавай новый логичный вопрос. Если есть ошибка — обязательно исправь её, объясни по-русски и похвали ТОЛЬКО за попытку в поле praise. Ответь строго в формате JSON.`
+          text: `Сообщение ученика: "${userMessage.trim()}".
+ВАЖНЕЙШИЕ ПРАВИЛА:
+1. Оценивай грамматику ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО в этом последнем сообщении: "${userMessage.trim()}". Предыдущие ошибки из истории УЖЕ исправлены — их повторять КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО!
+2. Если в последнем сообщении "${userMessage.trim()}" ошибок нет (например, "I live in Kyiv. I work with meat" — это грамотная речь):
+   - "correction": null (ОБЯЗАТЕЛЬНО null!)
+   - "repeatPrompt": null (ОБЯЗАТЕЛЬНО null!)
+   - "praise": "Отлично сказано, ${studentName}! Всё понятно и правильно."
+3. Если есть ошибка именно в "${userMessage.trim()}":
+   - "correction": доброе объяснение на русском
+   - "praise": "Хорошая попытка, ${studentName}!"
+4. Не переспрашивай то, что ученик уже сообщил (город, работу, семью, имя). Задавай новый логичный вопрос.
+Ответь строго в формате JSON.`
         }
       ]
     });
@@ -117,23 +128,44 @@ export async function POST(req: NextRequest) {
       const cleanJson = text.replace(/```json/gi, "").replace(/```/g, "").trim();
       const parsed = JSON.parse(cleanJson);
       
+      let finalCorrection = parsed.correction || null;
+      let finalRepeat = parsed.repeatPrompt || null;
       let finalPraise = parsed.praise;
-      if (parsed.correction) {
-        // When there is an error, praise the attempt, NOT a flawless performance
-        if (!finalPraise || /отлично справляешься|всё правильно|идеально|на пять/i.test(finalPraise)) {
+
+      // Double-check: ensure correction strictly applies to userMessage
+      if (finalCorrection) {
+        const lowerUser = userMessage.toLowerCase();
+        // If correction mentions 'child' / 'детей' but user didn't write 'child'
+        if ((finalCorrection.includes("child") || finalCorrection.includes("детей")) && !lowerUser.includes("child")) {
+          console.warn("[Teacher API] Stripping stale 'child' correction not present in latest message");
+          finalCorrection = null;
+          finalRepeat = null;
+        }
+        // If correction mentions 'from' but user didn't write 'from'
+        if (finalCorrection && (finalCorrection.includes("from") || finalCorrection.includes("is from")) && !lowerUser.includes("from") && !lowerUser.includes("is")) {
+          console.warn("[Teacher API] Stripping stale 'from' correction not present in latest message");
+          finalCorrection = null;
+          finalRepeat = null;
+        }
+      }
+
+      if (finalCorrection) {
+        if (!finalPraise || /отлично сказано|всё правильно|идеально|на пять/i.test(finalPraise)) {
           finalPraise = `Хорошая попытка, ${studentName}! Главное — говорить и не бояться ошибок.`;
         }
       } else {
-        if (!finalPraise) {
-          finalPraise = `Отлично сказано, ${studentName}!`;
+        finalCorrection = null;
+        finalRepeat = null;
+        if (!finalPraise || /попытка|пробуешь/i.test(finalPraise)) {
+          finalPraise = `Отлично сказано, ${studentName}! Всё правильно.`;
         }
       }
 
       const result = {
         english: parsed.english || `Hello ${studentName}! How are you today?`,
         russian: parsed.russian || `Привет, ${studentName}! Как твои дела сегодня?`,
-        correction: parsed.correction || null,
-        repeatPrompt: parsed.repeatPrompt || null,
+        correction: finalCorrection,
+        repeatPrompt: finalRepeat,
         praise: finalPraise
       };
       return NextResponse.json(result);
