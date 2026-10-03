@@ -61,10 +61,10 @@ class VoiceSpeaker {
   ): Promise<void> {
     this.stop();
 
-    const { slow = false, useGeminiTTS = true, onStart, onEnd, onError } = options;
+    const { slow = false, useGeminiTTS = false, onStart, onEnd, onError } = options;
     const speed = slow ? 0.60 : 0.85;
 
-    // Try Gemini TTS API first if requested
+    // Try Gemini TTS API only if explicitly requested
     if (useGeminiTTS) {
       try {
         const response = await fetch("/api/tts", {
@@ -86,10 +86,9 @@ class VoiceSpeaker {
               URL.revokeObjectURL(audioUrl);
               onEnd?.();
             };
-            audio.onerror = (e) => {
+            audio.onerror = () => {
               this.currentAudio = null;
               URL.revokeObjectURL(audioUrl);
-              // Fallback to browser SpeechSynthesis
               this.fallbackBrowserSpeak(text, speed, onStart, onEnd, onError);
             };
 
@@ -98,11 +97,11 @@ class VoiceSpeaker {
           }
         }
       } catch (e) {
-        // Fallback gracefully
+        // Fallback directly to browser voice
       }
     }
 
-    // Fallback to Web Speech API
+    // Always use robust browser Web Speech API
     this.fallbackBrowserSpeak(text, speed, onStart, onEnd, onError);
   }
 

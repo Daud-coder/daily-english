@@ -22,11 +22,19 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.GEMINI_API_KEY;
 
-    // If API key is not configured or placeholder, return intelligent contextual mock response
+    // If API key is missing, report explicit error to terminal and client
     if (!apiKey || apiKey.trim() === "" || apiKey === "your_gemini_api_key_here") {
-      console.log("[Teacher API] Using smart mock mode (GEMINI_API_KEY not set)");
-      const mock = getSmartMockResponse(userMessage, studentName);
-      return NextResponse.json(mock);
+      console.error("[Teacher API] ❌ ОШИБКА: GEMINI_API_KEY не задан в файле .env.local!");
+      return NextResponse.json(
+        {
+          error: "api_key_missing",
+          message: "⚠️ ИИ не подключён: проверьте ключ Gemini в файле .env.local (переменная GEMINI_API_KEY) и перезапустите dev-сервер.",
+          english: "AI is not connected. Please configure GEMINI_API_KEY in .env.local.",
+          russian: "ИИ не подключён: проверьте ключ Gemini в файле .env.local.",
+          isError: true
+        },
+        { status: 401 }
+      );
     }
 
     const systemInstruction = getTeacherSystemPrompt(context);
@@ -55,13 +63,19 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // Try primary model with automatic failover to alternative flash models on 503/429
-    const candidateModels = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+    // Candidate models in priority order: fast response & reliability
+    const candidateModels = [
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
+      "gemini-3.5-flash",
+      "gemini-flash-lite-latest"
+    ];
     let responseText = "";
-    let lastError = null;
+    let lastError: any = null;
 
     for (const model of candidateModels) {
       try {
+        console.log(`[Teacher API] Trying model: ${model}...`);
         const response = await ai.models.generateContent({
           model: model,
           contents: contents,
@@ -73,12 +87,12 @@ export async function POST(req: NextRequest) {
         });
         responseText = response.text || "";
         if (responseText) {
-          console.log(`[Teacher API] Success with model: ${model}`);
+          console.log(`[Teacher API] ✅ Success with model: ${model}`);
           break;
         }
       } catch (err: any) {
         lastError = err;
-        console.warn(`[Teacher API] Model ${model} failed, trying next:`, err?.message || err);
+        console.warn(`[Teacher API] ⚠️ Model ${model} failed, trying next:`, err?.message || err);
       }
     }
 
@@ -94,133 +108,37 @@ export async function POST(req: NextRequest) {
       const parsed = JSON.parse(cleanJson);
       
       const result = {
-        english: parsed.english || `Hello ${studentName}! How are you?`,
-        russian: parsed.russian || `Привет, ${studentName}! Как дела?`,
+        english: parsed.english || `Hello ${studentName}! How are you today?`,
+        russian: parsed.russian || `Привет, ${studentName}! Как твои дела сегодня?`,
         correction: parsed.correction || null,
         repeatPrompt: parsed.repeatPrompt || null,
         praise: parsed.praise || `Отлично, ${studentName}, продолжай говорить!`
       };
       return NextResponse.json(result);
     } catch (parseErr) {
-      console.warn("[Teacher API] JSON parse error, using fallback format:", parseErr);
+      console.warn("[Teacher API] JSON parse error, using text fallback:", parseErr);
       return NextResponse.json({
-        english: `Good job, ${studentName}! Say hello!`,
-        russian: `Отличная работа, ${studentName}! Скажи hello!`,
+        english: text.slice(0, 150) || `Good job, ${studentName}!`,
+        russian: `Отличная работа, ${studentName}!`,
         correction: null,
-        repeatPrompt: "Hello!",
+        repeatPrompt: null,
         praise: "Молодец, что пробуешь говорить!"
       });
     }
 
   } catch (error: any) {
-    console.error("[Teacher API] Gemini API error:", error?.message || error);
-    // Return friendly resilient fallback response with the student's name
-    const fallback = getSmartMockResponse(userMessage, studentName);
-    return NextResponse.json(fallback);
+    const errorDetails = error?.message || String(error);
+    console.error("[Teacher API] ❌ Gemini API error:", errorDetails);
+    
+    return NextResponse.json(
+      {
+        error: "gemini_api_error",
+        message: `⚠️ Ошибка Gemini ИИ: ${errorDetails.slice(0, 200)}. Попробуйте отправить сообщение ещё раз.`,
+        english: "I am having trouble connecting right now. Please try again in a moment.",
+        russian: "Не удалось связаться с Gemini ИИ. Пожалуйста, попробуй отправить сообщение ещё раз.",
+        isError: true
+      },
+      { status: 502 }
+    );
   }
-}
-
-/**
- * Intelligent beginner-tailored fallback responses for testing without API key
- */
-function getSmartMockResponse(input: string, studentName: string = "Daud") {
-  const lower = input.toLowerCase();
-
-  // Russian response handling
-  if (/[а-яёіїє]/i.test(lower)) {
-    if (lower.includes("зовут") || lower.includes("меня зовут") || lower.includes("дауд")) {
-      return {
-        english: `Nice to meet you, ${studentName}! How are you?`,
-        russian: `Приятно познакомиться, ${studentName}! Как твои дела?`,
-        correction: `По-английски «Меня зовут ${studentName}» будет: «My name is ${studentName}» [Май нэйм из ${studentName}].`,
-        repeatPrompt: `My name is ${studentName}.`,
-        praise: `Отлично, ${studentName}! Давай скажем это по-английски:`
-      };
-    }
-    if (lower.includes("привет") || lower.includes("здравствуй")) {
-      return {
-        english: `Hello, ${studentName}! How are you today?`,
-        russian: `Привет, ${studentName}! Как твои дела сегодня?`,
-        correction: "По-английски поздороваться можно простым словом «Hello!» [Хэллоу].",
-        repeatPrompt: "Hello! Nice to meet you.",
-        praise: "Отлично! Давай попробуем сказать это по-английски:"
-      };
-    }
-    if (lower.includes("кофе") || lower.includes("чай")) {
-      return {
-        english: "One coffee, please.",
-        russian: "Один кофе, пожалуйста.",
-        correction: "В кафе говорим: «One coffee, please» [Уан кофи, плииз].",
-        repeatPrompt: "One coffee, please.",
-        praise: "Ты отлично выразил мысль! Повтори вслух:"
-      };
-    }
-    if (lower.includes("хорошо") || lower.includes("нормально") || lower.includes("отлично")) {
-      return {
-        english: "I am fine, thank you.",
-        russian: "У меня всё хорошо, спасибо.",
-        correction: "Когда спрашивают «Как дела?», можно ответить: «I am fine» [Ай эм файн].",
-        repeatPrompt: "I am fine, thank you.",
-        praise: "Супер! Давай закрепим вслух:"
-      };
-    }
-
-    return {
-      english: `I understand you, ${studentName}! Speak English!`,
-      russian: `Я тебя понимаю, ${studentName}! Давай по-английски!`,
-      correction: "Ты ответил по-русски — это здорово! Давай переведём на английский.",
-      repeatPrompt: "I am learning English.",
-      praise: "Главное не бояться! Повтори за мной простую фразу:"
-    };
-  }
-
-  // English input handling
-  if (lower.includes("my name is") || lower.includes("name is") || lower.includes("daud")) {
-    return {
-      english: `Nice to meet you, ${studentName}! How are you today?`,
-      russian: `Приятно познакомиться, ${studentName}! Как твои дела сегодня?`,
-      correction: null,
-      repeatPrompt: null,
-      praise: `Прекрасно, ${studentName}! Идеальное английское предложение.`
-    };
-  }
-
-  if (lower.includes("hello") || lower.includes("hi")) {
-    return {
-      english: `Hello ${studentName}! What is your name?`,
-      russian: `Привет, ${studentName}! Как тебя зовут?`,
-      correction: null,
-      repeatPrompt: null,
-      praise: "Прекрасное приветствие! На пять с плюсом."
-    };
-  }
-
-  if (lower.includes("fine") || lower.includes("good") || lower.includes("ok")) {
-    return {
-      english: "Great! Do you like coffee?",
-      russian: "Здорово! Ты любишь кофе?",
-      correction: null,
-      repeatPrompt: null,
-      praise: "Отличный ответ! Коротко и понятно."
-    };
-  }
-
-  if (lower.includes("yes") || lower.includes("no")) {
-    return {
-      english: "Nice! Where are you now?",
-      russian: "Отлично! Где ты сейчас?",
-      correction: null,
-      repeatPrompt: null,
-      praise: "Молодец! Всё правильно."
-    };
-  }
-
-  // Default A0 response
-  return {
-    english: `Good, ${studentName}! How are you?`,
-    russian: `Хорошо, ${studentName}! Как твои дела?`,
-    correction: null,
-    repeatPrompt: null,
-    praise: "Ты делаешь отличные успехи!"
-  };
 }

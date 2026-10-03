@@ -32,6 +32,7 @@ export function TeacherChat() {
   const [shadowingPhrase, setShadowingPhrase] = useState<{ phrase: string; russian?: string } | null>(null);
   const [collapsedTranslations, setCollapsedTranslations] = useState<Record<string, boolean>>({});
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isComposing, setIsComposing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognizerRef = useRef<VoiceRecognizer | null>(null);
@@ -53,10 +54,10 @@ export function TeacherChat() {
           const starter: ChatMessageItem = {
             id: "msg-starter",
             sender: "teacher",
-            english: `Hello ${sName}! What is your name?`,
-            russian: `Привет, ${sName}! Как тебя зовут?`,
+            english: `Hello, ${sName}! How are you today?`,
+            russian: `Привет, ${sName}! Как твои дела сегодня?`,
             timestamp: Date.now(),
-            praise: "Добро пожаловать! Я твой личный ИИ-учитель."
+            praise: "Добро пожаловать! Я твой личный ИИ-учитель. Напиши или скажи мне что-нибудь на английском или русском!"
           };
           getStorage().saveMessage(starter);
           setMessages([starter]);
@@ -126,11 +127,31 @@ export function TeacherChat() {
         })
       });
 
-      if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        data = null;
       }
 
-      const data = await res.json();
+      if (!res.ok || data?.isError) {
+        const errorDetail = data?.message || "⚠️ ИИ не подключён: проверьте ключ Gemini в файле .env.local (переменная GEMINI_API_KEY) и перезапустите dev-сервер.";
+        console.error("[TeacherChat] API reported error:", errorDetail, data);
+
+        const errorMsg: ChatMessageItem = {
+          id: "err-" + Date.now(),
+          sender: "teacher",
+          english: "⚠️ AI is not connected. Please check your GEMINI_API_KEY in .env.local.",
+          russian: errorDetail,
+          timestamp: Date.now(),
+          praise: "Требуется проверка ключа Gemini API"
+        };
+
+        setMessages((prev) => [...prev, errorMsg]);
+        getStorage().saveMessage(errorMsg).catch(console.warn);
+        return;
+      }
+
       console.log("[TeacherChat] Received teacher response:", data);
 
       const teacherMsg: ChatMessageItem = {
@@ -155,22 +176,19 @@ export function TeacherChat() {
       voiceSpeaker.speak(teacherMsg.english, { slow: false });
 
     } catch (err: any) {
-      console.error("[TeacherChat] Error getting teacher reply:", err);
+      console.error("[TeacherChat] Network/Connection error:", err);
       
-      const fallbackMsg: ChatMessageItem = {
-        id: "msg-" + Date.now(),
+      const errorMsg: ChatMessageItem = {
+        id: "err-" + Date.now(),
         sender: "teacher",
-        english: `Nice to meet you, ${studentName}! How are you?`,
-        russian: `Приятно познакомиться, ${studentName}! Как твои дела?`,
+        english: "⚠️ Could not connect to the server. Please check your connection.",
+        russian: `⚠️ Ошибка связи с сервером: ${err?.message || "Не удалось отправить запрос"}. Проверьте соединение или перезапустите dev-сервер.`,
         timestamp: Date.now(),
-        correction: isRussian ? `Ты сказал по-русски: «${userText}». По-английски это звучит: «My name is ${studentName}».` : null,
-        repeatPrompt: isRussian ? `My name is ${studentName}.` : null,
-        praise: `Отлично, ${studentName}! Я тебя слышу, продолжаем разговор!`
+        praise: "Сетевая ошибка"
       };
 
-      setMessages((prev) => [...prev, fallbackMsg]);
-      getStorage().saveMessage(fallbackMsg).catch(console.warn);
-      voiceSpeaker.speak(fallbackMsg.english);
+      setMessages((prev) => [...prev, errorMsg]);
+      getStorage().saveMessage(errorMsg).catch(console.warn);
     } finally {
       setIsLoading(false);
     }
@@ -218,8 +236,8 @@ export function TeacherChat() {
       const starter: ChatMessageItem = {
         id: "msg-starter-" + Date.now(),
         sender: "teacher",
-        english: `Hello ${studentName}! What is your name?`,
-        russian: `Привет, ${studentName}! Как тебя зовут?`,
+        english: `Hello, ${studentName}! How are you today?`,
+        russian: `Привет, ${studentName}! Как твои дела сегодня?`,
         timestamp: Date.now(),
         praise: "Начнём новый диалог!"
       };
@@ -429,10 +447,17 @@ export function TeacherChat() {
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
+                  if (isComposing || e.nativeEvent.isComposing || (e as any).keyCode === 229) {
+                    return;
+                  }
                   e.preventDefault();
-                  handleSendMessage(inputText, false);
+                  if (inputText.trim()) {
+                    handleSendMessage(inputText, false);
+                  }
                 }
               }}
               placeholder={isListening ? "Слушаю ваш голос..." : "Напишите или скажите..."}

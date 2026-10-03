@@ -418,7 +418,13 @@ export function TodayLesson() {
               value={dialogueInput}
               onChange={(e) => setDialogueInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSendDialogueReply(dialogueInput);
+                if (e.key === "Enter") {
+                  if (e.nativeEvent.isComposing || (e as any).keyCode === 229) return;
+                  e.preventDefault();
+                  if (dialogueInput.trim()) {
+                    handleSendDialogueReply(dialogueInput);
+                  }
+                }
               }}
               placeholder="Ответьте по-английски или по-русски..."
               className="flex-1 py-3 px-4 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
